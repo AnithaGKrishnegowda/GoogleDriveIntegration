@@ -1,17 +1,22 @@
 package com.anitha.gdriveintegration;
 
 import android.annotation.TargetApi;
+import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.ProgressDialog;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -34,6 +39,7 @@ import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.DriveScopes;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.util.Collections;
 
 import static android.Manifest.permission.READ_EXTERNAL_STORAGE;
@@ -41,12 +47,52 @@ import static android.Manifest.permission.WRITE_EXTERNAL_STORAGE;
 
 public class MainActivity extends AppCompatActivity {
     DriveServiceHelper driveServiceHelper;
+    private static final String TAG = "MainActivity";
+
+    private static final int REQUEST_CODE_SIGN_IN = 1;
+    private static final int REQUEST_CODE_OPEN_DOCUMENT = 2;
+    private String mOpenFileId;
+
+    private EditText mFileTitleEditText;
+    private EditText mDocContentEditText;
+     private EditText editAppNAme;
+    private EditText editAppPassword;
+    Button save;
     //   private static final java.io.File UPLOAD_FILE = new java.io.File("/storage/emulated/0/sample.pdf/");
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        // Store the EditText boxes to be updated when files are opened/created/modified.
+        mFileTitleEditText = findViewById(R.id.file_title_edittext);
+        mDocContentEditText = findViewById(R.id.doc_content_edittext);
+
+
+        editAppNAme = findViewById(R.id.app_name);
+        editAppPassword = findViewById(R.id.password);
+        save = findViewById(R.id.save_data);
+
+        save.setOnClickListener(view -> {
+            String FILENAME = "password_information.csv";
+            String data = editAppNAme.getText().toString() + "," + editAppPassword.getText().toString() + "\n";
+            try {
+                FileOutputStream out = openFileOutput(FILENAME, Context.MODE_APPEND);
+                out.write(data.getBytes());
+                out.close();
+                Toast.makeText(getApplicationContext(), "Information saved successfully ", Toast.LENGTH_LONG).show();
+                editAppNAme.setText("");
+                editAppPassword.setText("");
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
+
+
+        // Set the onClick listeners for the button bar.
+        findViewById(R.id.open_btn).setOnClickListener(view -> openFilePicker());
+        //   findViewById(R.id.create_btn).setOnClickListener(view -> createFile());
+
 
         if (!checkPermission()) {
             openActivity();
@@ -59,6 +105,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         requestSignIn();
+
 
     }
 
@@ -73,19 +120,36 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent resultData) {
+        super.onActivityResult(requestCode, resultCode, resultData);
         switch (requestCode) {
             case 400:
                 if (resultCode == RESULT_OK) {
-                    handleSignInIntent(data);
+                    handleSignInIntent(resultData);
+
+
+                }
+                break;
+
+            case REQUEST_CODE_SIGN_IN:
+                if (resultCode == Activity.RESULT_OK && resultData != null) {
+                    handleSignInIntent(resultData);
+                }
+                break;
+
+            case REQUEST_CODE_OPEN_DOCUMENT:
+                if (resultCode == Activity.RESULT_OK && resultData != null) {
+                    Uri uri = resultData.getData();
+                    if (uri != null) {
+                        openFileFromFilePicker(uri);
+                    }
                 }
                 break;
         }
     }
 
-    private void handleSignInIntent(Intent data) {
-        GoogleSignIn.getSignedInAccountFromIntent(data).addOnSuccessListener(new OnSuccessListener<GoogleSignInAccount>() {
+    private void handleSignInIntent(Intent result) {
+        GoogleSignIn.getSignedInAccountFromIntent(result).addOnSuccessListener(new OnSuccessListener<GoogleSignInAccount>() {
             @Override
             public void onSuccess(GoogleSignInAccount googleSignInAccount) {
                 GoogleAccountCredential credential = GoogleAccountCredential.usingOAuth2(MainActivity.this, Collections.singleton(DriveScopes.DRIVE_FILE));
@@ -111,6 +175,80 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
+    private void openFilePicker() {
+        if (driveServiceHelper != null) {
+            Log.d(TAG, "Opening file picker.");
+
+            Intent pickerIntent = driveServiceHelper.createFilePickerIntent();
+
+            // The result of the SAF Intent is handled in onActivityResult.
+            startActivityForResult(pickerIntent, REQUEST_CODE_OPEN_DOCUMENT);
+        }
+    }
+
+    private void openFileFromFilePicker(Uri uri) {
+        if (driveServiceHelper != null) {
+            Log.d(TAG, "Opening " + uri.getPath());
+
+            driveServiceHelper.openFileUsingStorageAccessFramework(getContentResolver(), uri)
+                    .addOnSuccessListener(nameAndContent -> {
+                        String name = nameAndContent.first;
+                        String content = nameAndContent.second;
+
+                        mFileTitleEditText.setText(name);
+                        mDocContentEditText.setText(content);
+
+                        // Files opened through SAF cannot be modified.
+                        setReadOnlyMode();
+                    })
+                    .addOnFailureListener(exception ->
+                            Log.e(TAG, "Unable to open file from picker.", exception));
+        }
+    }
+
+    private void setReadWriteMode(String fileId) {
+        mFileTitleEditText.setEnabled(true);
+        mDocContentEditText.setEnabled(true);
+        mOpenFileId = fileId;
+    }
+
+    private void setReadOnlyMode() {
+        mFileTitleEditText.setEnabled(true);
+        mDocContentEditText.setEnabled(true);
+        mOpenFileId = null;
+
+    }
+
+    private void createFile() {
+        if (driveServiceHelper != null) {
+            Log.d(TAG, "Creating a file.");
+
+            driveServiceHelper.createFile()
+                    .addOnSuccessListener(fileId -> readFile(fileId))
+                    .addOnFailureListener(exception ->
+                            Log.e(TAG, "Couldn't create file.", exception));
+        }
+    }
+
+    private void readFile(String fileId) {
+        if (driveServiceHelper != null) {
+            Log.d(TAG, "Reading file " + fileId);
+
+            driveServiceHelper.readFile(fileId)
+                    .addOnSuccessListener(nameAndContent -> {
+                        String name = nameAndContent.first;
+                        String content = nameAndContent.second;
+
+                        mFileTitleEditText.setText(name);
+                        mDocContentEditText.setText(content);
+
+                        setReadWriteMode(fileId);
+                    })
+                    .addOnFailureListener(exception ->
+                            Log.e(TAG, "Couldn't read file.", exception));
+        }
+    }
+
     public void uploadFile(View v) {
         ProgressDialog progressDialog = new ProgressDialog(MainActivity.this);
         progressDialog.setTitle("Uploading To drive");
@@ -118,7 +256,7 @@ public class MainActivity extends AppCompatActivity {
         progressDialog.show();
 
 
-     String file = Environment.getExternalStorageDirectory() + "/sample.pdf/";
+        String file = Environment.getExternalStorageDirectory() + "/sample.pdf/";
 
        /* File pdfFile = new File(Environment.getDataDirectory(), "sample.pdf");
 
@@ -134,35 +272,36 @@ public class MainActivity extends AppCompatActivity {
         System.out.println("pdfFile.read() = " + pdfFile.canRead());
 */
 
-     String readFile = "/storage/emulated/0/Download/sample.pdf";
+        String readFile = "/storage/emulated/0/Download/sample.pdf";
 
         String readCSVFile = "/storage/emulated/0/Download/UploadScheduleRoster.csv";
 
         String readXLSXFile = "/storage/emulated/0/Download/abc.xlsx";
+        String passInfoFile = "/data/data/com.anitha.gdriveintegration/files/password_information.csv";
 
         String directory_path = Environment.getExternalStorageDirectory().getPath() + "/mypdf/";
 
-        System.out.println("Directory path"+ directory_path);
+        System.out.println("Directory path" + directory_path);
 
         File filetest = new File(directory_path);
         if (!filetest.exists()) {
             filetest.mkdirs();
         }
-        String targetPdf = directory_path+"sample.pdf";
-        System.out.println("Target"+ targetPdf);
+        String targetPdf = directory_path + "sample.pdf";
+        System.out.println("Target" + targetPdf);
 
 
         File filePath = new File(targetPdf);
-        if(filePath.exists()){
-            System.out.println("File Exists!!"+filePath.exists());
+        if (filePath.exists()) {
+            System.out.println("File Exists!!" + filePath.exists());
         }
 
         String absolute = filePath.getAbsolutePath();
-        System.out.println("Original  path: "
+        System.out.println("Original path: "
                 + filePath.getPath());
-        System.out.println("Absolute  path: "
+        System.out.println("Absolute path: "
                 + absolute);
-        driveServiceHelper.createFilePDF(readXLSXFile).addOnSuccessListener(new OnSuccessListener<String>() {
+        driveServiceHelper.createFile(passInfoFile).addOnSuccessListener(new OnSuccessListener<String>() {
             @Override
             public void onSuccess(String s) {
                 progressDialog.dismiss();
@@ -177,6 +316,20 @@ public class MainActivity extends AppCompatActivity {
                         Toast.makeText(getApplicationContext(), "Check your Google drive API key", Toast.LENGTH_LONG).show();
                     }
                 });
+
+    }
+
+
+    public void viewFile(View v) {
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.setType("text/csv");   //XML file only
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        try {
+            startActivityForResult(Intent.createChooser(intent, "Select"), 100);
+        } catch (android.content.ActivityNotFoundException ex) {
+            // Potentially direct the user to the Market with a Dialog
+            Toast.makeText(this, "Drive Not Found", Toast.LENGTH_SHORT).show();
+        }
 
     }
 
