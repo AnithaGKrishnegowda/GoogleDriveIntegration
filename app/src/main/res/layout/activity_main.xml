@@ -46,6 +46,7 @@
     <EditText
         android:id="@+id/password"
         android:padding="5dp"
+        android:inputType="textPassword"
         android:background="@drawable/edittextstyle"
         android:layout_height="50dp"
         android:hint="Enter Application Password"

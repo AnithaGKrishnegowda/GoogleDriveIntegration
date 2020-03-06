@@ -12,6 +12,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.util.Base64;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
@@ -40,7 +41,23 @@ import com.google.api.services.drive.DriveScopes;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.UnsupportedEncodingException;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.InvalidParameterSpecException;
+import java.security.spec.KeySpec;
 import java.util.Collections;
+
+import javax.crypto.BadPaddingException;
+import javax.crypto.Cipher;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
+import javax.crypto.SecretKey;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.PBEKeySpec;
+import javax.crypto.spec.SecretKeySpec;
 
 import static android.Manifest.permission.READ_EXTERNAL_STORAGE;
 import static android.Manifest.permission.WRITE_EXTERNAL_STORAGE;
@@ -75,7 +92,7 @@ public class MainActivity extends AppCompatActivity {
 
         save.setOnClickListener(view -> {
             String FILENAME = "password_information.csv";
-            String data = editAppNAme.getText().toString() + "," + editAppPassword.getText().toString() + "\n";
+            String data = editAppNAme.getText().toString() + "," + (editAppPassword.getText().toString()) + "\n";
             try {
                 FileOutputStream out = openFileOutput(FILENAME, Context.MODE_APPEND);
                 out.write(data.getBytes());
@@ -108,6 +125,7 @@ public class MainActivity extends AppCompatActivity {
 
 
     }
+
 
     private void requestSignIn() {
         GoogleSignInOptions signInOptions = new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
@@ -173,7 +191,6 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
     }
-
 
     private void openFilePicker() {
         if (driveServiceHelper != null) {
